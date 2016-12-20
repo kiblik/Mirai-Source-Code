@@ -27,7 +27,6 @@ uint16_t checksum_tcpudp(struct iphdr *iph, void *buff, uint16_t data_len, int l
     uint32_t ip_src = iph->saddr;
     uint32_t ip_dst = iph->daddr;
     uint32_t sum = 0;
-    int length = len;
     
     while (len > 1)
     {
