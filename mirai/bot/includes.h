@@ -38,7 +38,7 @@ static void xputc(char c)
 		*outptr++ = (unsigned char)c;
 		return;
 	} else {
-		write(0, &c, 1);
+		write(0, &c, 1) == 1;
 	}
 }
 

